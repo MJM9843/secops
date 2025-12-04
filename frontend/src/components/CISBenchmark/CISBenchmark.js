@@ -81,27 +81,48 @@ function CISBenchmark({ sessionToken, onLogout }) {
     setRemediatingResources(prev => new Set(prev).add(resourceKey));
 
     try {
-      const region = resource.region || selectedRegion === 'all' ? 'us-east-1' : selectedRegion;
+      // FIX: Correct region logic with proper parentheses
+      const region = resource.region || (selectedRegion === 'all' ? 'us-east-1' : selectedRegion);
 
-      console.log(`Remediating ${checkId} for ${resource.resource_id} in region ${region}`);
+      console.log(`=== REMEDIATION REQUEST ===`);
+      console.log(`Check ID: ${checkId}`);
+      console.log(`Resource ID: ${resource.resource_id}`);
+      console.log(`Region: ${region}`);
+      console.log(`Resource Object:`, resource);
 
       const response = await cisAPI.remediate(sessionToken, region, checkId, [resource.resource_id]);
 
-      if (response.data.success && response.data.details && response.data.details.length > 0) {
-        const detail = response.data.details[0];
-        const status = detail.success ? '✓ SUCCESS' : '✗ FAILED';
-        alert(`${status}\n\nResource: ${detail.resource_id}\nMessage: ${detail.message}`);
+      console.log(`=== REMEDIATION RESPONSE ===`);
+      console.log('Full Response:', response.data);
 
+      // FIX: Better response handling
+      if (response.data.details && response.data.details.length > 0) {
+        const detail = response.data.details[0];
+        
+        console.log('Detail Object:', detail);
+        
         if (detail.success) {
+          alert(`✓ SUCCESS\n\nResource: ${detail.resource_id}\nMessage: ${detail.message}`);
+          // Re-scan to refresh the results
           await handleScan();
+        } else {
+          alert(`✗ FAILED\n\nResource: ${detail.resource_id}\nMessage: ${detail.message}`);
         }
+      } else if (response.data.success) {
+        // Backend returned success but no details
+        alert(`✓ SUCCESS\n\n${response.data.message || 'Remediation completed successfully'}`);
+        await handleScan();
       } else {
-        alert(`Remediation failed:\n${response.data.message || 'Unknown error'}`);
+        // Backend returned failure
+        alert(`✗ FAILED\n\n${response.data.message || 'Remediation failed'}`);
       }
     } catch (err) {
-      const errorMessage = err.response?.data?.detail || 'Remediation failed: ' + err.message;
+      console.error('=== REMEDIATION ERROR ===');
+      console.error('Error:', err);
+      console.error('Response:', err.response);
+      
+      const errorMessage = err.response?.data?.detail || err.response?.data?.message || 'Remediation failed: ' + err.message;
       alert(`✗ FAILED\n\n${errorMessage}`);
-      console.error('Remediation error:', err);
     } finally {
       setRemediatingResources(prev => {
         const newSet = new Set(prev);
@@ -124,6 +145,7 @@ function CISBenchmark({ sessionToken, onLogout }) {
 
     const resourcesByRegion = {};
     selectedResourcesList.forEach(resource => {
+      // FIX: Correct region logic
       const region = resource.region || (selectedRegion === 'all' ? 'us-east-1' : selectedRegion);
 
       if (!resourcesByRegion[region]) {
@@ -147,37 +169,57 @@ function CISBenchmark({ sessionToken, onLogout }) {
     try {
       let allResults = [];
       let successCount = 0;
+      let failureMessages = [];
+
+      console.log(`=== BULK REMEDIATION REQUEST ===`);
+      console.log(`Check ID: ${checkId}`);
+      console.log(`Resources by Region:`, resourcesByRegion);
 
       for (const [region, regionResources] of Object.entries(resourcesByRegion)) {
         const resourceIds = regionResources.map(r => r.resource_id);
 
+        console.log(`Processing region ${region} with resources:`, resourceIds);
+
         try {
           const response = await cisAPI.remediate(sessionToken, region, checkId, resourceIds);
 
-          if (response.data.success) {
-            const details = response.data.details || [];
+          console.log(`Region ${region} Response:`, response.data);
+
+          if (response.data.details && response.data.details.length > 0) {
+            const details = response.data.details;
             successCount += details.filter(d => d.success).length;
             allResults = allResults.concat(details);
+            
+            // Collect failure messages
+            details.forEach(d => {
+              if (!d.success) {
+                failureMessages.push(`${d.resource_id}: ${d.message}`);
+              }
+            });
+          } else if (response.data.success) {
+            successCount += resourceIds.length;
           }
         } catch (err) {
           console.error(`Remediation failed for region ${region}:`, err);
+          failureMessages.push(`Region ${region}: ${err.response?.data?.detail || err.message}`);
         }
       }
 
-      let message = `Remediation Results:\n\n✓ ${successCount}/${selected.size} successful\n\n`;
+      let message = `Remediation Results:\n\n✓ ${successCount}/${selected.size} successful\n`;
+      
+      if (failureMessages.length > 0) {
+        message += `\n❌ Failures:\n${failureMessages.slice(0, 5).join('\n')}`;
+        if (failureMessages.length > 5) {
+          message += `\n... and ${failureMessages.length - 5} more failures`;
+        }
+      }
 
-      if (allResults.length <= 5) {
+      if (allResults.length > 0 && allResults.length <= 5) {
+        message += `\n\nDetails:\n`;
         allResults.forEach(detail => {
           const status = detail.success ? '✓' : '✗';
           message += `${status} ${detail.resource_id}: ${detail.message}\n`;
         });
-      } else {
-        message += `First 5 results:\n`;
-        allResults.slice(0, 5).forEach(detail => {
-          const status = detail.success ? '✓' : '✗';
-          message += `${status} ${detail.resource_id}\n`;
-        });
-        message += `\n... and ${allResults.length - 5} more`;
       }
 
       alert(message);
@@ -187,6 +229,7 @@ function CISBenchmark({ sessionToken, onLogout }) {
         await handleScan();
       }
     } catch (err) {
+      console.error('=== BULK REMEDIATION ERROR ===', err);
       alert(`Remediation failed: ${err.message}`);
     } finally {
       setRemediatingResources(prev => {
@@ -372,7 +415,7 @@ function CISBenchmark({ sessionToken, onLogout }) {
           </>
         )}
 
-        {Object.keys(results).length > 0 && (
+{Object.keys(results).length > 0 && (
           <div className="results-section">
             <h2>CIS Benchmark Results</h2>
 
@@ -493,6 +536,7 @@ function CISBenchmark({ sessionToken, onLogout }) {
                                             <strong>{resource.resource_id}</strong>
                                             <span className="resource-type">{resource.resource_type}</span>
                                             <span className="resource-reason">{resource.reason}</span>
+                                            <span className="resource-region">Region: {resource.region}</span>
                                           </div>
 
                                           <button
@@ -607,6 +651,7 @@ function CISBenchmark({ sessionToken, onLogout }) {
                                           <strong>{resource.resource_id}</strong>
                                           <span className="resource-type">{resource.resource_type}</span>
                                           <span className="resource-reason">{resource.reason}</span>
+                                          <span className="resource-region">Region: {resource.region}</span>
                                         </div>
                                       </div>
                                     ))}
