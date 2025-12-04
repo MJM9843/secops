@@ -22,6 +22,10 @@ fi
 echo -e "${GREEN}[1/8] Updating system packages...${NC}"
 sudo apt-get update -y
 sudo apt-get upgrade -y
+sudo apt install software-properties-common
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3.11-dev
 
 echo -e "${GREEN}[2/8] Installing Python 3.11 and dependencies...${NC}"
 sudo apt-get install -y python3.11 python3.11-venv python3-pip python3.11-dev build-essential libssl-dev libffi-dev
