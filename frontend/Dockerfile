@@ -1,13 +1,13 @@
 # Stage 1: Build React application
-FROM node:18-alpine AS builder
+FROM node:18 AS builder
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json ./
+COPY package*.json ./
 
-# Install dependencies without package-lock.json
-RUN npm install --legacy-peer-deps
+# Install dependencies (generates package-lock.json if missing)
+RUN npm install
 
 # Copy application source
 COPY . .
