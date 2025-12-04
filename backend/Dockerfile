@@ -1,20 +1,22 @@
-# Use Node.js base image
-FROM node:18-alpine
+FROM python:3.10-slim
 
-# Set working directory
 WORKDIR /app
 
-# Copy package manifest(s)
-COPY package*.json ./
+# Install system dependencies (if needed)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN npm install --silent
+# Copy requirement file first (layer caching)
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source code
 COPY . .
 
-# Expose port the backend listens on (adjust as per your server config)
+# Expose FastAPI port (default 8000)
 EXPOSE 8000
 
-# Start the backend server — adjust command if you use e.g. ts-node, or a custom script
-CMD ["npm", "start"]
+# Run FastAPI backend
+CMD ["python", "app/main.py"]
