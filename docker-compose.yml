@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  backend:
+    image: ${DOCKERHUB_USERNAME}/secops-backend:latest
+    container_name: secops-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=SecOps
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - API_V1_STR=/api/v1
+      - LOG_LEVEL=INFO
+    volumes:
+      - backend-logs:/var/log
+      # Mount AWS credentials if running locally (not recommended for production)
+      # - ~/.aws:/root/.aws:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - secops-network
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/secops-frontend:latest
+    container_name: secops-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_API_URL=/api/v1
+      - REACT_APP_NAME=SecOps
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - secops-network
+
+volumes:
+  backend-logs:
+    driver: local
+
+networks:
+  secops-network:
+    driver: bridge
