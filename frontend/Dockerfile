@@ -1,28 +1,35 @@
-FROM python:3.10-slim
+# Stage 1: Build React application
+FROM node:18 AS builder
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Copy package files
+COPY package*.json ./
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Install dependencies
+RUN npm ci --only=production
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
+# Copy application source
 COPY . .
 
-# Create log directory
-RUN mkdir -p /var/log && \
-    touch /var/log/secops-backend.log && \
-    chmod 666 /var/log/secops-backend.log
+# Build production bundle
+RUN npm run build
 
-# Expose FastAPI port
-EXPOSE 8000
+# Stage 2: Serve with Nginx
+FROM nginx:alpine
 
-# Run with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--log-level", "info"]
+# Copy custom nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy built assets from builder stage
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Expose port 80
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
