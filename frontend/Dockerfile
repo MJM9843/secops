@@ -1,23 +1,35 @@
-FROM node:18
+# Stage 1: Build React application
+FROM node:18 AS builder
 
 WORKDIR /app
 
-# Copy dependencies first
+# Copy package files
 COPY package*.json ./
 
-RUN npm install
+# Install dependencies
+RUN npm ci --only=production
 
-# Copy all frontend source code
+# Copy application source
 COPY . .
 
-# Build production version
+# Build production bundle
 RUN npm run build
 
-# Use lightweight Nginx to serve static files
+# Stage 2: Serve with Nginx
 FROM nginx:alpine
 
-COPY --from=0 /app/build /usr/share/nginx/html
+# Copy custom nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Copy built assets from builder stage
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Expose port 80
 EXPOSE 80
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
+
+# Start nginx
 CMD ["nginx", "-g", "daemon off;"]
