@@ -102,3 +102,92 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+
+           # ---------- SLACK NOTIFICATION ----------
+      - name: Send Slack Notification
+        if: always()  # This runs whether the build succeeds or fails
+        run: |
+          # Determine the overall job status
+          if [ "${{ job.status }}" == "success" ]; then
+            CONCLUSION="success"
+            STATUS_TEXT="✅ Frontend & Backend images pushed successfully"
+            EMOJI=":white_check_mark:"
+          else
+            CONCLUSION="failure"
+            STATUS_TEXT="❌ Docker build/push failed"
+            EMOJI=":x:"
+          fi
+
+          # Get commit message and escape quotes
+          COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1 | sed 's/"/\\"/g' | cut -c 1-100)
+          
+          # Prepare image tags
+          FRONTEND_TAG="${{ secrets.DOCKERHUB_USERNAME }}/char-counter-frontend:${{ github.sha }}"
+          BACKEND_TAG="${{ secrets.DOCKERHUB_USERNAME }}/char-counter-backend:${{ github.sha }}"
+
+          # Send notification to Lambda function
+          curl -X POST "${{ secrets.LAMBDA_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"action\": \"completed\",
+              \"workflow_run\": {
+                \"name\": \"Build and Push Frontend & Backend Images\",
+                \"conclusion\": \"$CONCLUSION\",
+                \"status\": \"completed\",
+                \"head_branch\": \"${{ github.ref_name }}\",
+                \"head_sha\": \"${{ github.sha }}\",
+                \"html_url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+                \"head_commit\": {
+                  \"message\": \"$COMMIT_MSG - Frontend: $FRONTEND_TAG, Backend: $BACKEND_TAG\",
+                  \"author\": {
+                    \"name\": \"${{ github.actor }}\"
+                  }
+                }
+              },
+              \"repository\": {
+                \"full_name\": \"${{ github.repository }}\"
+              },
+              \"sender\": {
+                \"login\": \"${{ github.actor }}\"
+              }
+            }"
+
+      # Optional: Send detailed failure notification with specific component info
+      - name: Send Detailed Failure Notification
+        if: failure()
+        run: |
+          # Check which step failed
+          FRONTEND_STATUS="${{ steps.build-frontend.outcome }}"
+          BACKEND_STATUS="${{ steps.build-backend.outcome }}"
+          
+          if [ "$FRONTEND_STATUS" == "failure" ]; then
+            FAILED_COMPONENT="Frontend"
+          elif [ "$BACKEND_STATUS" == "failure" ]; then
+            FAILED_COMPONENT="Backend"
+          else
+            FAILED_COMPONENT="Unknown"
+          fi
+
+          curl -X POST "${{ secrets.LAMBDA_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"action\": \"completed\",
+              \"workflow_run\": {
+                \"name\": \"Docker Build FAILURE - $FAILED_COMPONENT Component\",
+                \"conclusion\": \"failure\",
+                \"status\": \"completed\",
+                \"head_branch\": \"${{ github.ref_name }}\",
+                \"head_sha\": \"${{ github.sha }}\",
+                \"html_url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+                \"head_commit\": {
+                  \"message\": \"⚠️ $FAILED_COMPONENT build/push failed. Check logs for details.\",
+                  \"author\": {
+                    \"name\": \"${{ github.actor }}\"
+                  }
+                }
+              },
+              \"repository\": {
+                \"full_name\": \"${{ github.repository }}\"
+              }
+            }"
